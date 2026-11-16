@@ -87,6 +87,23 @@ npm run fake-phone -- ABCD --manual        # press Enter to swing ("l"/"r" + Ent
 npm run fake-phone -- ABCD --host localhost:3100 --every 1.5
 ```
 
+### Terminal log
+
+The `npm start` terminal shows what's happening live, including:
+
+- page loads (with the device's IP and browser)
+- laptop and phone joining and leaving
+- the phone's sensor mode and calibration
+- every swing (power, aim, loft, peak, grade, ms early/late)
+- points, combos and match results
+- a phone stream health line every 10 s (Hz, peak |a|, dropouts, RTT)
+- a warning if the phone stream stalls
+
+Two flags change how much it prints:
+
+- `npm start -- --verbose` also logs every HTTP request and each haptic/status message sent to the phone.
+- `npm start -- --quiet` shows errors only.
+
 ---
 
 ## How it works

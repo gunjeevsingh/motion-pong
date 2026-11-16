@@ -1,0 +1,22 @@
+{
+  "name": "motion-pong",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Motion table tennis: swing your phone like a paddle against a neon robot.",
+  "type": "module",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "cert": "node scripts/make-cert.js --force",
+    "fake-phone": "node scripts/fake-phone.js",
+    "test": "node scripts/test-shot-solver.js"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "qrcode": "1.5.4",
+    "selfsigned": "2.4.1",
+    "three": "0.170.0",
+    "ws": "8.18.0"
+  }
+}

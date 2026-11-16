@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { solveShot, heightAtNet, NET_CLEAR_Y } from '../public/js/game/shot-solver.js';
 import { Rules, serverFor, matchWinner } from '../public/js/game/rules.js';
 import { SwingDetector } from '../public/js/input/swing-detector.js';
-import { WORLD } from '../public/js/config.js';
+import { WORLD, CFG } from '../public/js/config.js';
 
 const { TABLE_W, TABLE_L, TABLE_Y, NET_H, BALL_R, PADDLE_Z } = WORLD;
 const G = 9.0;
@@ -96,6 +96,34 @@ console.log('✔ shot-solver: 2000 random quality-1 shots land on the opponent h
   assert.equal(evs.length, 2, 'next stroke after a whiff is not eaten by the cooldown');
   checks += 2;
   console.log('✔ swing-detector: whiff waives cooldown without double-counting the deceleration');
+}
+
+// Forehand / backhand classification
+{
+  const strokeOf = (h, lat, opts = {}) => {
+    Object.assign(CFG, { SWAP_STROKES: false, HANDEDNESS: 'RIGHT' }, opts);
+    const d = new SwingDetector();
+    let ev = null;
+    d.onSwing((e) => { ev = e; });
+    let t = 0;
+    const fr = (m, l) => d.push({ t: (t += 16.7), a: [0, m, 0], g: [0, 9.81, 0], w: [0, 0, 0], h, lat: l });
+    for (let i = 0; i < 25; i++) fr(0.2, 0);
+    [8, 15, 22, 25, 20, 12, 5].forEach((m) => fr(m, lat === undefined ? undefined : lat * m));
+    Object.assign(CFG, { SWAP_STROKES: false, HANDEDNESS: 'RIGHT' });
+    return ev;
+  };
+  assert.equal(strokeOf(10, -1).stroke, 'FH', 'back of phone toward the table = forehand');
+  assert.equal(strokeOf(-40, 1).stroke, 'FH', 'face rule beats swing direction');
+  assert.equal(strokeOf(175, -1).stroke, 'BH', 'screen toward the table = backhand');
+  assert.equal(strokeOf(-170, 1).strokeBy, 'face');
+  assert.equal(strokeOf(90, -1).stroke, 'FH', 'edge-on, right→left swing = right-hand forehand');
+  assert.equal(strokeOf(90, 1).stroke, 'BH', 'edge-on, left→right swing = right-hand backhand');
+  assert.equal(strokeOf(90, 1).strokeBy, 'swing');
+  assert.equal(strokeOf(90, 1, { HANDEDNESS: 'LEFT' }).stroke, 'FH', 'left-hander mirrors the swing rule');
+  assert.equal(strokeOf(10, -1, { SWAP_STROKES: true }).stroke, 'BH', 'swap flips the face rule');
+  assert.equal(strokeOf(undefined, undefined).stroke, null, 'no orientation → undecided');
+  checks += 10;
+  console.log('✔ strokes: face rule, edge-on swing-direction fallback, left-handed, swap, no-orientation');
 }
 
 console.log(`\nAll ${checks} checks passed.`);

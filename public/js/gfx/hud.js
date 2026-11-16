@@ -56,12 +56,12 @@ export function createHud() {
       el.fire.classList.toggle('show', fireLevel > 0);
       document.body.classList.toggle('on-fire', fireLevel > 0);
     },
-    showSwing({ power, aim, grade }) {
+    showSwing({ power, aim, grade, stroke }) {
       el.ringPower.style.strokeDashoffset = String(RING_LEN * (1 - power));
       const color = grade === 'PERFECT' ? '#ffd23f' : grade === 'GOOD' ? '#7dffb2' : grade === 'WHIFF' ? '#8a7aa8' : '#ff8a1f';
       el.ringPower.style.stroke = color;
       el.ringAim.setAttribute('transform', `rotate(${aim * 60} 40 40)`);
-      el.ringLabel.textContent = grade || '';
+      el.ringLabel.textContent = [grade && grade !== 'SERVE' ? stroke : '', grade].filter(Boolean).join(' ');
       el.ringLabel.style.color = color;
       pop(el.ringLabel.parentElement);
     },

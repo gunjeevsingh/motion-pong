@@ -200,14 +200,15 @@ function observe(room, r, role, msg) {
       break;
     }
     case 'info':
-      log(`📱 sensors: ${msg.sensorMode || 'unknown'} @ ${msg.hz || '?'} Hz requested`, { room, color: C.cyan });
+      log(`📱 sensors: ${msg.sensorMode || 'unknown'} @ ${msg.hz || '?'} Hz requested · orientation: ${msg.orientation || 'none'}` +
+        `${msg.orientation === 'none' ? ' (no face rule — stroke guessed from the ball side)' : ''}`, { room, color: msg.orientation === 'none' ? C.yellow : C.cyan });
       break;
     case 'calibrate':
       log('💻 asked the phone to calibrate — hold it still', { room, color: C.cyan });
       break;
     case 'calibrated': {
       const g = Array.isArray(msg.g0) ? msg.g0.map((v) => (+v).toFixed(2)).join(', ') : '?';
-      log(`📱 calibrated · neutral gravity [${g}]`, { room, color: C.cyan });
+      log(`📱 calibrated · neutral gravity [${g}]${msg.yaw ? ' · facing re-centred' : ''}`, { room, color: C.cyan });
       break;
     }
     case 'ping':

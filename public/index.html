@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Motion Pong</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;600;800&display=swap" />
+  <link rel="stylesheet" href="/css/game.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="scoreboard">
+      <div class="side you"><span class="label">YOU <i id="serve-p" class="serve-dot"></i></span><span id="score-p" class="digit">0</span></div>
+      <div class="vs">:</div>
+      <div class="side bot"><span id="score-r" class="digit">0</span><span class="label"><i id="serve-r" class="serve-dot"></i> ROBOT</span></div>
+      <div id="match-point">MATCH POINT</div>
+    </div>
+    <div id="difficulty" title="1 / 2 / 3">NORMAL</div>
+    <div id="combo"><span id="combo-n">x3</span><small>RALLY</small></div>
+    <div id="fire">🔥 ON FIRE 🔥</div>
+    <div id="reason"></div>
+
+    <div id="swing-ring" title="Last swing: power / aim / timing">
+      <svg viewBox="0 0 80 80" width="80" height="80">
+        <circle cx="40" cy="40" r="34" class="ring-bg" />
+        <circle id="ring-power" cx="40" cy="40" r="34" class="ring-power" transform="rotate(-90 40 40)" />
+        <g id="ring-aim"><line x1="40" y1="40" x2="40" y2="14" class="ring-aim" /></g>
+      </svg>
+      <div id="ring-label"></div>
+    </div>
+
+    <div id="phone-status"><span class="phone-icon">📱</span><span id="phone-text">NO PHONE</span><span id="latency"></span></div>
+    <div id="keys-hint">SPACE swing · ←→ aim · ↑↓ loft · X debug · M mute · F fullscreen · Esc pause</div>
+  </div>
+
+  <div id="float-layer"></div>
+  <div id="banner" class="banner"><div id="banner-text"></div><div id="banner-sub"></div></div>
+  <div id="flash"></div>
+  <div id="toast"></div>
+  <pre id="debug-hud"></pre>
+
+  <!-- Connect panel -->
+  <div id="connect" class="panel">
+    <h1 class="logo">MOTION<span>PONG</span></h1>
+    <div class="connect-body">
+      <div class="qr-wrap"><img id="qr" alt="QR code for the phone controller" /></div>
+      <div class="connect-info">
+        <div class="room-label">ROOM</div>
+        <div id="room-code">····</div>
+        <div class="url-row"><code id="phone-url">…</code></div>
+        <div class="toggles">
+          <button id="proto-https" class="toggle on">HTTPS</button>
+          <button id="proto-http" class="toggle">HTTP</button>
+          <select id="ip-select" title="Laptop LAN address"></select>
+        </div>
+        <p id="connect-hint" class="hint">Scan with your phone (same Wi-Fi). On the warning page tap <b>Advanced → Proceed</b>, then <b>START</b>.</p>
+        <button id="kbd-btn" class="big-btn">PLAY WITH KEYBOARD</button>
+      </div>
+    </div>
+    <div id="connected-msg">PHONE CONNECTED!</div>
+  </div>
+
+  <div id="start-overlay"><div class="start-inner"><h1 class="logo">MOTION<span>PONG</span></h1><div class="blink">CLICK TO START</div><small>enables sound</small></div></div>
+  <div id="pause" class="overlay"><div><h2>PAUSED</h2><p>Esc to resume</p></div></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

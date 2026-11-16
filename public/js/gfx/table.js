@@ -19,8 +19,8 @@ export function createTable(scene) {
   top.castShadow = true;
   group.add(top);
 
-  // White lines
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  // Table lines: soft grey-blue rather than pure white so they don't bloom and compete with the ball
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x7d93b8 });
   const lineY = TABLE_Y + 0.0015;
   const addLine = (w, l, x, z) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), lineMat);
@@ -37,8 +37,8 @@ export function createTable(scene) {
   addLine(0.006, TABLE_L, 0, 0);
 
   // Glowing edge strips
-  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x22e5ff, emissive: 0x22e5ff, emissiveIntensity: 1.6 });
-  const edgeMatNear = new THREE.MeshStandardMaterial({ color: 0xff2e88, emissive: 0xff2e88, emissiveIntensity: 1.6 });
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x22e5ff, emissive: 0x22e5ff, emissiveIntensity: 1.1 });
+  const edgeMatNear = new THREE.MeshStandardMaterial({ color: 0xff2e88, emissive: 0xff2e88, emissiveIntensity: 1.1 });
   const E = 0.018;
   const addEdge = (w, l, x, z, mat) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, E, l), mat);
@@ -108,8 +108,8 @@ export function createTable(scene) {
     }
     // edge glow pulse
     glow *= Math.exp(-dt * 6);
-    edgeMat.emissiveIntensity = 1.6 + (glowSide < 0 ? glow * 4 : 0);
-    edgeMatNear.emissiveIntensity = 1.6 + (glowSide > 0 ? glow * 4 : 0);
+    edgeMat.emissiveIntensity = 1.1 + (glowSide < 0 ? glow * 4 : 0);
+    edgeMatNear.emissiveIntensity = 1.1 + (glowSide > 0 ? glow * 4 : 0);
     netMat.opacity = 0.7 + Math.min(0.3, wobble * 8);
   }
 

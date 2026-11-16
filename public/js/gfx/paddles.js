@@ -13,7 +13,7 @@ function makePaddleMesh(faceColor, rimColor) {
   face.castShadow = true;
   g.add(face);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.106, 0.009, 8, 40),
-    new THREE.MeshStandardMaterial({ color: rimColor, emissive: rimColor, emissiveIntensity: 2.2 }));
+    new THREE.MeshStandardMaterial({ color: rimColor, emissive: rimColor, emissiveIntensity: 1.2 }));
   rim.position.y = 0.11;
   g.add(rim);
   const handle = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.11, 0.026),
@@ -22,7 +22,7 @@ function makePaddleMesh(faceColor, rimColor) {
   handle.castShadow = true;
   g.add(handle);
   const cap = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.014, 0.03),
-    new THREE.MeshStandardMaterial({ color: rimColor, emissive: rimColor, emissiveIntensity: 1.5 }));
+    new THREE.MeshStandardMaterial({ color: rimColor, emissive: rimColor, emissiveIntensity: 1.0 }));
   cap.position.y = -0.058;
   g.add(cap);
   return { group: g, face, rim };
@@ -69,9 +69,9 @@ class Ribbon {
       for (let k = 0; k < 2; k++) {
         const o = (i * 2 + k) * 3;
         const w = k === 0 ? 1 : 0.35;
-        this.col[o] = this.color.r * f * w * 1.6;
-        this.col[o + 1] = this.color.g * f * w * 1.6;
-        this.col[o + 2] = this.color.b * f * w * 1.6;
+        this.col[o] = this.color.r * f * w * 1.1;
+        this.col[o + 1] = this.color.g * f * w * 1.1;
+        this.col[o + 2] = this.color.b * f * w * 1.1;
       }
       if (i >= this.count && this.count > 0) {
         // collapse unused verts onto the last valid one
@@ -155,7 +155,7 @@ export class PaddleView {
     this.root.position.set(px, py - 0.11, pz);
     this.pivot.rotation.set(-this.tiltPitch * s, swingYaw * s + (s < 0 ? Math.PI : 0), -this.tiltRoll * s + (s > 0 ? -0.25 : 0.25));
 
-    this.mesh.rim.material.emissiveIntensity = 2.2 + this.flash * 4;
+    this.mesh.rim.material.emissiveIntensity = 1.2 + this.flash * 4;
 
     // ribbon trail from rim top/bottom
     if (active || this.ribbon.alpha > 0) {

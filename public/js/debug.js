@@ -8,6 +8,7 @@ export function createDebugPanel({ onDifficulty, onVolume, onRecalibrate }) {
 
   const folders = {
     'Swing detector': ['START_THRESH', 'FULL_POWER', 'COOLDOWN', 'MAX_WINDOW', 'PEAK_DROP', 'AIM_GAIN', 'LOFT_GAIN', 'AIM_DEADZONE', 'INVERT_AIM', 'INVERT_LOFT'],
+    'Forehand / backhand': ['HANDEDNESS', 'FH_MAX_DEG', 'BH_MIN_DEG', 'SWAP_STROKES', 'BH_POWER', 'BH_PERFECT', 'WRONG_SIDE_PENALTY'],
     'Hit timing': ['HIT_WINDOW_EARLY', 'HIT_WINDOW_LATE', 'PERFECT_SEC', 'GOOD_SEC'],
     'Game': ['GRAVITY', 'WIN_SCORE', 'DIFFICULTY', 'MASTER_VOLUME'],
     'Graphics': ['BLOOM_STRENGTH', 'BLOOM_RADIUS', 'BLOOM_THRESHOLD'],
@@ -18,6 +19,7 @@ export function createDebugPanel({ onDifficulty, onVolume, onRecalibrate }) {
     for (const k of keys) {
       let c;
       if (k === 'DIFFICULTY') c = f.add(CFG, k, Object.keys(DIFFICULTIES));
+      else if (k === 'HANDEDNESS') c = f.add(CFG, k, ['RIGHT', 'LEFT']);
       else if (typeof DEFAULTS[k] === 'boolean') c = f.add(CFG, k);
       else { const [mn, mx, st] = RANGES[k]; c = f.add(CFG, k, mn, mx, st); }
       c.onChange((v) => {

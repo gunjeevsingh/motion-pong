@@ -19,9 +19,11 @@ let net = null;
 let sensorMode = '';
 let sensorsOk = false;
 let wakeLock = null;
-const latest = { a: [0, 0, 0], g: [0, 9.81, 0], w: [0, 0, 0] };
+const latest = { a: [0, 0, 0], g: [0, 9.81, 0], w: [0, 0, 0], q: null }; // q: orientation quaternion [x,y,z,w]
+let orientMode = 'none';
 let frames = 0, hzT = performance.now(), hz = 0;
 let glow = 0;
+let lastFace = null;
 
 ui.roomInput.addEventListener('input', () => {
   ui.roomInput.value = ui.roomInput.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
@@ -56,6 +58,7 @@ async function start() {
     showError(e.message || String(e));
     return;
   }
+  await startOrientation();
   ui.roomEntry.hidden = true;
   ui.start.hidden = true;
   ui.cal.hidden = false;
@@ -89,6 +92,89 @@ async function startSensors() {
   }
   await startDeviceMotion();
   sensorMode = 'devicemotion';
+}
+
+// ---------------------------------------------------------------- orientation (forehand/backhand + pointing)
+// Optional: without it the laptop falls back to auto-follow and guesses the stroke from the ball side.
+async function startOrientation() {
+  if ('RelativeOrientationSensor' in window) {
+    try {
+      await new Promise((resolve, reject) => {
+        const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
+        s.addEventListener('reading', () => { latest.q = s.quaternion; resolve(); });
+        s.addEventListener('error', (e) => reject(e.error || e));
+        s.start();
+        setTimeout(() => reject(new Error('timeout')), 1500);
+      });
+      orientMode = 'relative';
+      return;
+    } catch (e) {
+      latest.q = null;
+      console.warn('RelativeOrientationSensor failed, trying deviceorientation', e);
+    }
+  }
+  if (typeof DeviceOrientationEvent !== 'undefined') {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try { if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') return; } catch { return; }
+    }
+    await new Promise((resolve) => {
+      window.addEventListener('deviceorientation', (e) => {
+        if (e.alpha == null) return;
+        latest.q = eulerToQuat(e.alpha, e.beta, e.gamma);
+        if (orientMode === 'none') { orientMode = 'deviceorientation'; resolve(); }
+      });
+      setTimeout(resolve, 1500);
+    });
+  }
+}
+
+/** W3C DeviceOrientation (Z-X'-Y'' intrinsic) → quaternion [x, y, z, w]. */
+function eulerToQuat(alpha, beta, gamma) {
+  const D = Math.PI / 360; // half-angle in radians
+  const cX = Math.cos(beta * D), cY = Math.cos(gamma * D), cZ = Math.cos(alpha * D);
+  const sX = Math.sin(beta * D), sY = Math.sin(gamma * D), sZ = Math.sin(alpha * D);
+  return [sX * cY * cZ - cX * sY * sZ, cX * sY * cZ + sX * cY * sZ, cX * cY * sZ + sX * sY * cZ, cX * cY * cZ - sX * sY * sZ];
+}
+
+// Quaternion conventions differ between APIs (device→world vs world→device). Gravity settles it: rotated into
+// the world frame, the "up" gravity reading must point along +Z. Vote over the first frames, then keep the winner.
+const conv = { votes: 0, frames: 0, conj: false, decided: false };
+function rotate(q, v, conj) {
+  const x = conj ? -q[0] : q[0], y = conj ? -q[1] : q[1], z = conj ? -q[2] : q[2], w = q[3];
+  return [
+    (1 - 2 * (y * y + z * z)) * v[0] + 2 * (x * y - z * w) * v[1] + 2 * (x * z + y * w) * v[2],
+    2 * (x * y + z * w) * v[0] + (1 - 2 * (x * x + z * z)) * v[1] + 2 * (y * z - x * w) * v[2],
+    2 * (x * z - y * w) * v[0] + 2 * (y * z + x * w) * v[1] + (1 - 2 * (x * x + y * y)) * v[2],
+  ];
+}
+
+// Face heading: horizontal direction of the screen normal (device +Z), relative to `yaw0` (the calibration pose,
+// screen toward the player). 0° = screen toward the player (forehand), ±180° = screen toward the laptop (backhand).
+let yaw0 = null;
+const wrapDeg = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
+function orientation() {
+  const q = latest.q;
+  if (!q) return null;
+  if (!conv.decided) {
+    const gm = Math.hypot(...latest.g) || 9.81;
+    const zA = rotate(q, latest.g, false)[2] / gm, zB = rotate(q, latest.g, true)[2] / gm;
+    if (Math.abs(zA - zB) > 0.3) conv.votes += zA > zB ? -1 : 1;
+    if (Math.abs(conv.votes) >= 20 || ++conv.frames > 300) { conv.decided = true; conv.conj = conv.votes > 0; }
+    return null;
+  }
+  const n = rotate(q, [0, 0, 1], conv.conj);
+  const hor = Math.hypot(n[0], n[1]);
+  const heading = Math.atan2(n[1], n[0]) * 180 / Math.PI;
+  if (yaw0 === null && hor > 0.6) yaw0 = heading; // START was just tapped, so the screen faces the player
+  if (yaw0 === null) return null;
+  const aw = rotate(q, latest.a, conv.conj);
+  const r = yaw0 * Math.PI / 180;
+  return {
+    heading,
+    h: hor > 0.3 ? wrapDeg(heading - yaw0) : null,   // null: face pointing at floor/sky, heading meaningless
+    lat: -Math.sin(r) * aw[0] + Math.cos(r) * aw[1], // linear accel along the player's right (world frame)
+    hor,
+  };
 }
 
 function startGeneric() {
@@ -155,14 +241,21 @@ function emitFrame(t) {
   frames++;
   const mag = Math.hypot(latest.a[0], latest.a[1], latest.a[2]);
   glow = Math.max(glow * 0.9, Math.min(1, mag / 25));
-  if (calib.active) calib.samples.push([latest.g[0], latest.g[1], latest.g[2]]);
+  const o = orientation();
+  lastFace = o?.h ?? null;
+  if (calib.active) {
+    calib.samples.push([latest.g[0], latest.g[1], latest.g[2]]);
+    if (o && o.hor > 0.6) calib.headings.push(o.heading);
+  }
   if (net?.open) {
-    net.send({
+    const f = {
       type: 'frame', t: Math.round(t * 10) / 10,
       a: [r3(latest.a[0]), r3(latest.a[1]), r3(latest.a[2])],
       g: [r3(latest.g[0]), r3(latest.g[1]), r3(latest.g[2])],
       w: [r3(latest.w[0]), r3(latest.w[1]), r3(latest.w[2])],
-    });
+    };
+    if (o) { f.h = o.h === null ? null : Math.round(o.h * 10) / 10; f.lat = r3(o.lat); }
+    net.send(f);
   }
 }
 
@@ -177,7 +270,11 @@ function tick() {
     frames = 0; hzT = now;
     sensorsOk = hz > 10;
     if (net?.open) setChip(sensorsOk ? `SENSORS OK · ${hz}Hz` : 'NO SENSOR DATA', sensorsOk ? 'ok' : 'bad');
-    if (sensorMode) ui.mode.textContent = `${sensorMode} · ${hz} Hz${isIOS ? ' · iPhone (untested)' : ''}`;
+    if (sensorMode) {
+      const face = orientMode === 'none' ? 'no orientation' : lastFace === null ? 'face —'
+        : `${Math.abs(lastFace) <= 70 ? 'FOREHAND' : Math.abs(lastFace) >= 110 ? 'BACKHAND' : 'EDGE-ON'} face ${Math.round(lastFace)}°`;
+      ui.mode.textContent = `${sensorMode} · ${hz} Hz · ${face}${isIOS ? ' · iPhone (untested)' : ''}`;
+    }
   }
 }
 requestAnimationFrame(tick);
@@ -190,7 +287,7 @@ function connect() {
     onState: (s) => {
       if (s === 'open') {
         setChip('CONNECTED', 'connected');
-        net.send({ type: 'info', sensorMode, hz: 60 });
+        net.send({ type: 'info', sensorMode, hz: 60, orientation: orientMode });
       } else if (s === 'connecting') setChip('CONNECTING', 'connecting');
       else setChip('RECONNECTING…', 'connecting');
     },
@@ -223,7 +320,7 @@ function flashOrb(perfect) {
 }
 
 // ---------------------------------------------------------------- calibration
-const calib = { active: false, running: false, samples: [] };
+const calib = { active: false, running: false, samples: [], headings: [] };
 async function calibrate() {
   if (calib.running || !sensorMode) return;
   calib.running = true;
@@ -236,6 +333,7 @@ async function calibrate() {
   }
   ui.countdown.textContent = '•';
   calib.samples = [];
+  calib.headings = [];
   calib.active = true;
   await sleep(1000);
   calib.active = false;
@@ -247,7 +345,13 @@ async function calibrate() {
   } else {
     g0[1] = 9.81;
   }
-  net?.send({ type: 'calibrated', g0 });
+  if (calib.headings.length) {
+    // circular mean of the face heading = new "screen toward the player" reference (re-centres pointing too)
+    let sx = 0, sy = 0;
+    for (const hd of calib.headings) { sx += Math.cos(hd * Math.PI / 180); sy += Math.sin(hd * Math.PI / 180); }
+    yaw0 = Math.atan2(sy, sx) * 180 / Math.PI;
+  }
+  net?.send({ type: 'calibrated', g0, yaw: calib.headings.length > 0 });
   try { navigator.vibrate?.([20, 30, 40]); } catch { /* ignore */ }
   ui.countdown.textContent = '';
   setStatus('CALIBRATED ✔', '#7dffb2');

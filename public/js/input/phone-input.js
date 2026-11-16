@@ -13,6 +13,7 @@ export class PhoneInput {
     this.hz = 0;
     this.rtt = 0;
     this.sensorMode = '';
+    this.orientation = '';     // 'relative' | 'deviceorientation' | 'none' (from the phone's info message)
     this._count = 0;
     this._hzT = performance.now();
     this._lastFrameAt = 0;
@@ -31,6 +32,10 @@ export class PhoneInput {
 
   get g0() { return this.detector.g0; }
   get streaming() { return performance.now() - this._lastFrameAt < 500; }
+  /** Phone sends a face heading (orientation sensor works) → face rule + live paddle stance available.
+   *  1.5 s grace so a Wi-Fi hiccup doesn't flip the stance back to the ball-side guess. */
+  get hasHeading() { return this.lastFrame != null && 'h' in this.lastFrame && performance.now() - this._lastFrameAt < 1500; }
+  get face() { return this.lastFrame?.h ?? null; }
 
   onSwing(fn) { this.detector.onSwing(fn); }
 
@@ -54,6 +59,7 @@ export class PhoneInput {
         break;
       case 'info':
         this.sensorMode = msg.sensorMode || '';
+        this.orientation = msg.orientation || 'none';
         break;
       case 'peer':
         if (msg.role === 'phone') {

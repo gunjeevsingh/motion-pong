@@ -1,4 +1,4 @@
-// Ball: white-hot emissive sphere, halo sprite, speed-coloured trail, blob shadow, guide ring, squash & stretch.
+// Ball: neon-orange emissive sphere with a dark outline (stands out from the white/cyan/pink glow), halo sprite, speed-coloured trail, blob shadow, guide ring, squash & stretch.
 import * as THREE from 'three';
 import { WORLD } from '../config.js';
 import { radialTexture } from './arena.js';
@@ -11,16 +11,21 @@ export function createBallView(scene) {
   const group = new THREE.Group();
   scene.add(group);
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4e0, emissiveIntensity: 2.2, roughness: 0.3 });
+  const BALL_EMISSIVE = 0xff6a10, GOLD_EMISSIVE = 0xffd86b;
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff9a3c, emissive: BALL_EMISSIVE, emissiveIntensity: 1.1, roughness: 0.3 });
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 24, 16), mat);
   mesh.castShadow = true;
   group.add(mesh);
+  // Dark back-face shell: a thin outline so the ball reads against bright neon lines and rims.
+  const outline = new THREE.Mesh(new THREE.SphereGeometry(BALL_R * 1.22, 20, 14),
+    new THREE.MeshBasicMaterial({ color: 0x07010f, side: THREE.BackSide }));
+  mesh.add(outline);
 
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
     map: radialTexture('rgba(255,255,255,0.9)', 'rgba(255,255,255,0)'),
-    color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.55,
+    color: 0xff8a2a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.3,
   }));
-  halo.scale.setScalar(BALL_R * 7);
+  halo.scale.setScalar(BALL_R * 3.5);
   group.add(halo);
 
   // Trail: instanced fading spheres
@@ -43,12 +48,12 @@ export function createBallView(scene) {
 
   // Guide ring
   const ring = new THREE.Mesh(new THREE.RingGeometry(BALL_R * 1.9, BALL_R * 2.3, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
+    new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
   ring.rotation.x = -Math.PI / 2;
   ring.renderOrder = 3;
   group.add(ring);
 
-  const CYAN = new THREE.Color(0x22e5ff), MAGENTA = new THREE.Color(0xff2ed1), GOLD = new THREE.Color(0xffc21a), FLAME = new THREE.Color(0xff6a00);
+  const ORANGE = new THREE.Color(0xff8a2a), MAGENTA = new THREE.Color(0xff2ed1), GOLD = new THREE.Color(0xffc21a), FLAME = new THREE.Color(0xff6a00);
   const dummy = new THREE.Object3D();
   const velN = new THREE.Vector3();
   let squash = 0;
@@ -79,10 +84,10 @@ export function createBallView(scene) {
     }
 
     const gold = s.gold, fire = s.fire;
-    mat.emissive.set(gold ? 0xffd86b : 0xfff4e0);
-    halo.material.color.copy(gold ? GOLD : fire ? FLAME : tmpColor.set(0xffffff));
-    halo.material.opacity = gold || fire ? 0.9 : 0.55;
-    halo.scale.setScalar(BALL_R * (gold || fire ? 10 : 7));
+    mat.emissive.set(gold ? GOLD_EMISSIVE : BALL_EMISSIVE);
+    halo.material.color.copy(gold ? GOLD : fire ? FLAME : ORANGE);
+    halo.material.opacity = gold || fire ? 0.8 : 0.3;
+    halo.scale.setScalar(BALL_R * (gold || fire ? 6 : 3.5));
 
     // trail history (sample at ~120 Hz regardless of fps)
     sampleT += s.dt;
@@ -104,7 +109,7 @@ export function createBallView(scene) {
         dummy.scale.setScalar(f * (fire ? 1.3 : 0.95));
         if (gold) tmpColor.copy(GOLD);
         else if (fire) tmpColor.copy(FLAME).lerp(GOLD, f * 0.5);
-        else tmpColor.copy(CYAN).lerp(MAGENTA, speedT);
+        else tmpColor.copy(ORANGE).lerp(MAGENTA, speedT);
         tmpColor.multiplyScalar(f * f * 1.2);
         trail.setColorAt(i, tmpColor);
       }

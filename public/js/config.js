@@ -13,6 +13,14 @@ export const DEFAULTS = Object.freeze({
   AIM_DEADZONE: 0.08,
   INVERT_AIM: false,
   INVERT_LOFT: false,
+  // forehand / backhand (face rule: the side of the phone facing the table, relative to the calibration pose)
+  HANDEDNESS: 'RIGHT',  // RIGHT | LEFT — only used when the face is edge-on and the swing direction decides
+  FH_MAX_DEG: 70,       // |face heading| ≤ this → forehand (back of phone toward the table, like calibration)
+  BH_MIN_DEG: 110,      // |face heading| ≥ this → backhand (screen toward the table)
+  SWAP_STROKES: false,  // flip the face rule (for a thumb-on-the-back grip)
+  BH_POWER: 0.85,       // backhand: compact stroke, less top speed…
+  BH_PERFECT: 0.85,     // …and a slightly tighter PERFECT window
+  WRONG_SIDE_PENALTY: true, // forehand on a backhand-side ball (or vice versa) → weak shot
   // hit timing
   HIT_WINDOW_EARLY: -0.25, // s (tToSweet lower bound)
   HIT_WINDOW_LATE: 0.35,   // s (upper bound)
@@ -41,6 +49,10 @@ export const RANGES = {
   AIM_GAIN: [0, 4, 0.05],
   LOFT_GAIN: [0, 4, 0.05],
   AIM_DEADZONE: [0, 0.4, 0.01],
+  FH_MAX_DEG: [30, 89, 1],
+  BH_MIN_DEG: [91, 160, 1],
+  BH_POWER: [0.5, 1.2, 0.01],
+  BH_PERFECT: [0.5, 1.5, 0.01],
   HIT_WINDOW_EARLY: [-0.6, 0, 0.01],
   HIT_WINDOW_LATE: [0, 0.8, 0.01],
   PERFECT_SEC: [0.01, 0.2, 0.005],

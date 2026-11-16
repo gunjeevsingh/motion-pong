@@ -33,7 +33,8 @@ const post = createPost(S.renderer, S.scene, S.camera, { lowfx: LOWFX });
 const arena = createArena(S.scene);
 const table = createTable(S.scene);
 const ballView = createBallView(S.scene);
-const playerPaddle = new PaddleView(S.scene, { face: 0xff2e88, rim: 0xff8a1f, side: 1 });
+// Two-tone like a real bat: pink faces you in the forehand stance, the black side shows when it turns over for a backhand.
+const playerPaddle = new PaddleView(S.scene, { face: 0xff2e88, back: 0x1c1626, rim: 0xff8a1f, side: 1 });
 const robotPaddle = new PaddleView(S.scene, { face: 0x1aa8ff, rim: 0x22e5ff, side: -1 });
 const robot = createRobot(S.scene);
 const fx = createFx(S.scene);
@@ -60,6 +61,11 @@ if (!room || !new RegExp(`^[${ROOM_ALPHABET}]{4}$`).test(room)) {
 }
 const net = new Net({ url: () => wsUrl(room, 'laptop'), onMessage: (m) => phone.handle(m) });
 phone.attach(net);
+
+/** Game event → server terminal (not relayed to the phone). kind picks the colour there. */
+function termLog(kind, text) { net.send({ type: 'log', kind, text }); }
+const sgn = (v) => { const r = v.toFixed(2); return r === '-0.00' ? '+0.00' : (v >= 0 ? '+' : '') + r; };
+const scoreStr = () => `YOU ${game.score[1]} – ${game.score[-1]} ROBOT`;
 
 const connectPanel = $('connect');
 let serverInfo = { ips: [], httpPort: 3000, httpsPort: 3443 };
@@ -185,6 +191,7 @@ function setDifficulty(name, persist = true) {
   if (persist) setConfig('DIFFICULTY', name);
   hud.setDifficulty(name);
   hud.toast(`Difficulty: ${name}`);
+  termLog('info', `difficulty → ${name}`);
   debugPanel.refresh();
 }
 hud.setDifficulty(CFG.DIFFICULTY);
@@ -209,6 +216,7 @@ document.addEventListener('pointerdown', () => audio.unlock(), { once: false });
 
 function setPaused(p) {
   if (game.phase === PHASE.LOBBY) p = false;
+  if (p !== paused) termLog('info', p ? '⏸ paused' : '▶ resumed');
   paused = p;
   $('pause').classList.toggle('show', p);
 }
@@ -231,6 +239,7 @@ function startMatch() {
   S.resetFocus();
   S.setZoom(0);
   game.enter(PHASE.SERVE);
+  termLog('match', `▶ MATCH START · ${CFG.DIFFICULTY} · input: ${phone.connected ? 'phone' : 'keyboard'}`);
 }
 
 game.onEnter((phase) => {
@@ -280,6 +289,7 @@ game.onEnter((phase) => {
 
     case PHASE.MATCH_END: {
       const w = game.winner;
+      termLog('match', `🏆 MATCH OVER · ${w > 0 ? 'YOU WIN' : 'ROBOT WINS'} · ${scoreStr()}`);
       hud.setMatchPoint(false);
       hud.reason('');
       if (w > 0) {
@@ -313,12 +323,49 @@ function bigConfetti(w) {
 
 // ---------------------------------------------------------------- swings & hits
 let lastSwing = null;
+const rightHanded = () => CFG.HANDEDNESS !== 'LEFT';
+
+/** Where the ball will cross the player's paddle plane (x is unaffected by bounces). */
+function predictX() {
+  return ball.vel.z > 0.1 ? ball.pos.x + ball.vel.x * Math.max(0, (PADDLE_Z - ball.pos.z) / ball.vel.z) : ball.pos.x;
+}
+
+/** The stroke a ball at x "wants": forehand on your racket-hand side, backhand on the other; null down the middle. */
+function naturalStroke(x) {
+  if (Math.abs(x) < 0.2) return null;
+  return (x > 0) === rightHanded() ? 'FH' : 'BH';
+}
+
+/** Stance between strokes: the phone's live face when it has one, otherwise the wing the incoming ball wants. */
+let lastWing = 'FH';
+function readyWing() {
+  const f = phone.hasHeading ? phone.face : null;
+  if (f !== null) {
+    const af = Math.abs(f);
+    let w = af <= CFG.FH_MAX_DEG ? 'FH' : af >= CFG.BH_MIN_DEG ? 'BH' : null;
+    if (w && CFG.SWAP_STROKES) w = w === 'FH' ? 'BH' : 'FH';
+    if (w) lastWing = w; // edge-on: keep the previous stance
+    return lastWing;
+  }
+  if (game.phase === PHASE.RALLY && ball.vel.z > 0 && !ball.dead) return (lastWing = naturalStroke(predictX()) || lastWing);
+  return (lastWing = 'FH');
+}
+
+/** Detected stroke, or (keyboard / no orientation sensor) the natural one for where the ball is going. */
+function resolveStroke(ev) {
+  if (ev.stroke) return { stroke: ev.stroke, strokeBy: ev.strokeBy };
+  const x = predictX();
+  return { stroke: naturalStroke(x) || ((x >= 0) === rightHanded() ? 'FH' : 'BH'), strokeBy: 'auto' };
+}
 
 function handleSwing(ev, source) {
   if (!started || paused) return;
-  lastSwing = { ...ev, source, grade: '' };
+  lastSwing = { ...ev, ...resolveStroke(ev), source, grade: '', dtMs: null, note: '' };
+  const phaseAtSwing = game.phase;
+  queueMicrotask(logSwing.bind(null, lastSwing, phaseAtSwing)); // after the phase handler has graded it
   audio.whoosh(ev.power);
-  playerPaddle.swing(ev.power, ev.aim >= 0 ? 1 : -1);
+  // forehand sweeps across the body from the racket-hand side; a left-hander's forehand mirrors a right-hander's backhand
+  playerPaddle.swing(ev.power, lastSwing.stroke, rightHanded() ? 1 : -1);
 
   switch (game.phase) {
     case PHASE.LOBBY:
@@ -339,6 +386,16 @@ function handleSwing(ev, source) {
   }
 }
 
+function logSwing(sw, phase) {
+  const g = sw.grade || (phase === PHASE.RALLY ? '' : `(${phase.toLowerCase()})`);
+  const timing = sw.dtMs == null ? '' : ` · ${Math.abs(sw.dtMs)} ms ${sw.dtMs > 0 ? 'early' : 'late'}`;
+  const peak = sw.peak ? ` · peak ${sw.peak.toFixed(1)} m/s²` : '';
+  const kind = g === 'PERFECT' ? 'perfect' : g === 'WHIFF' ? 'whiff' : g ? 'hit' : 'info';
+  const by = sw.strokeBy === 'face' ? `face ${Math.round(sw.face)}°` : sw.strokeBy === 'swing' ? 'by swing direction' : 'auto';
+  termLog(kind, `swing [${sw.source}] ${sw.stroke} (${by}) · power ${sw.power.toFixed(2)} · aim ${sgn(sw.aim)} · loft ${sgn(sw.loft)}${peak}` +
+    ` → ${g || '—'}${timing}${sw.note ? ` · ${sw.note}` : ''}`);
+}
+
 function playerServe(ev) {
   const shot = solveShot({
     from: ball.pos, dir: 1, power: Math.max(0.35, ev.power) * 0.85, aim: ev.aim, loft: ev.loft, quality: 0.9,
@@ -349,6 +406,7 @@ function playerServe(ev) {
   game.rally = 1;
   game.enter(PHASE.RALLY);
   juiceHit(ball.pos, ev.power * 0.7, false, 1);
+  lastSwing.grade = 'SERVE';
   hud.showSwing({ ...ev, grade: 'SERVE' });
   phone.haptic([25]);
 }
@@ -358,6 +416,8 @@ function tryHit(ev) {
   const eligible = b.active && !b.dead && rules.lastHitter === -1 && b.vel.z > 0 && b.pos.z > 0.4 &&
     (rules.bounces[1] > 0 || b.pos.z > TABLE_L / 2);
   const tToSweet = b.vel.z > 0 ? (PADDLE_Z - b.pos.z) / b.vel.z : Infinity;
+  if (Number.isFinite(tToSweet) && b.active && !b.dead) lastSwing.dtMs = Math.round(tToSweet * 1000);
+  const contactX = predictX();
 
   if (!eligible || tToSweet < CFG.HIT_WINDOW_EARLY || tToSweet > CFG.HIT_WINDOW_LATE) {
     // whiff: no cooldown penalty
@@ -369,18 +429,36 @@ function tryHit(ev) {
     }
     hud.floatText(label, { x: playerPaddle.x, y: 1.05, z: 1.5 }, 'whiff', 0.7);
     lastSwing.grade = 'WHIFF';
-    hud.showSwing({ ...ev, grade: 'WHIFF' });
+    hud.showSwing({ ...ev, grade: 'WHIFF', stroke: lastSwing.stroke });
     return;
   }
 
+  const isBH = lastSwing.stroke === 'BH';
   const absT = Math.abs(tToSweet);
-  const quality = 1 - Math.min(1, absT / 0.30);
-  const grade = absT <= CFG.PERFECT_SEC ? 'PERFECT' : absT <= CFG.GOOD_SEC ? 'GOOD' : tToSweet > 0 ? 'EARLY' : 'LATE';
+  let quality = 1 - Math.min(1, absT / 0.30);
+  const perfectSec = CFG.PERFECT_SEC * (isBH ? CFG.BH_PERFECT : 1);
+  let grade = absT <= perfectSec ? 'PERFECT' : absT <= CFG.GOOD_SEC ? 'GOOD' : tToSweet > 0 ? 'EARLY' : 'LATE';
+  let power = ev.power * (isBH ? CFG.BH_POWER : 1);
+  const notes = [];
+
+  // Backhand: compact block — handles fast incoming balls well.
+  if (isBH && b.speed() > 7) { quality = Math.min(1, quality + 0.15); notes.push('block bonus'); }
+  // Wrong wing: forehand on a backhand-side ball (or vice versa) → shanked.
+  const natural = naturalStroke(contactX);
+  const wrongSide = CFG.WRONG_SIDE_PENALTY && lastSwing.strokeBy !== 'auto' && natural && natural !== lastSwing.stroke;
+  if (wrongSide) {
+    quality *= 0.5;
+    power *= 0.75;
+    if (grade === 'PERFECT') grade = 'GOOD';
+    notes.push(`wrong side (wanted ${natural})`);
+    hud.floatText('WRONG SIDE!', { x: b.pos.x, y: b.pos.y + 0.45, z: b.pos.z - 0.3 }, 'whiff', 0.9);
+  }
+  lastSwing.note = notes.join(', ');
   const perfect = grade === 'PERFECT';
 
   playerPaddle.snapTo(b.pos.x, b.pos.y, b.pos.z);
   const shot = solveShot({
-    from: b.pos, dir: 1, power: ev.power, aim: ev.aim, loft: ev.loft, quality, perfect,
+    from: b.pos, dir: 1, power, aim: ev.aim, loft: ev.loft, quality, perfect,
     baseLandTime: DIFFICULTIES[CFG.DIFFICULTY].landTime, rallyCount: game.rally, gravity: CFG.GRAVITY,
   });
   b.launch(shot.vel);
@@ -389,11 +467,12 @@ function tryHit(ev) {
   ai.reset();
   game.rally++;
   game.combo++;
-  juiceHit(b.pos, ev.power, perfect, 1, grade);
+  juiceHit(b.pos, power, perfect, 1, grade);
   lastSwing.grade = grade;
-  hud.showSwing({ ...ev, grade });
-  phone.haptic(perfect ? [20, 30, 40] : [25]);
-  phone.status(perfect ? 'PERFECT!' : grade, perfect ? '#ffd23f' : grade === 'GOOD' ? '#7dffb2' : '#ff8a1f');
+  hud.showSwing({ ...ev, grade, stroke: lastSwing.stroke });
+  // distinct buzz per wing so you can feel which one registered
+  phone.haptic(wrongSide ? [70] : isBH ? (perfect ? [20, 20, 20, 20, 40] : [12, 25, 12]) : (perfect ? [20, 30, 40] : [25]));
+  phone.status(`${isBH ? 'BACKHAND' : 'FOREHAND'} ${perfect ? 'PERFECT!' : grade}`, perfect ? '#ffd23f' : grade === 'GOOD' ? '#7dffb2' : '#ff8a1f');
 
   // combo / ON FIRE
   const lvl = game.combo >= 15 ? 3 : game.combo >= 10 ? 2 : game.combo >= 5 ? 1 : 0;
@@ -401,6 +480,7 @@ function tryHit(ev) {
     game.fireLevel = lvl;
     arena.setFire(lvl);
     hud.floatText(lvl === 1 ? 'ON FIRE!' : lvl === 2 ? 'BLAZING!' : 'INFERNO!', { x: 0, y: 1.5, z: 0 }, 'smash', 1.2);
+    termLog('perfect', `🔥 ${lvl === 1 ? 'ON FIRE' : lvl === 2 ? 'BLAZING' : 'INFERNO'} · combo ${game.combo}`);
   }
   hud.setCombo(game.combo, game.fireLevel);
 }
@@ -443,7 +523,7 @@ function juiceHit(pos, p, perfect, side, grade = '') {
 function robotHit() {
   const shot = ai.shoot(ball, game.rally);
   robotPaddle.snapTo(ball.pos.x, ball.pos.y, ball.pos.z);
-  robotPaddle.swing(0.6, ball.pos.x > ai.x ? -1 : 1);
+  robotPaddle.swing(0.6, 'FH', ball.pos.x > ai.x ? -1 : 1);
   ball.launch(shot.vel);
   ball.gold = false;
   rules.onHit(-1);
@@ -453,8 +533,9 @@ function robotHit() {
 }
 
 function robotWhiff() {
+  termLog('info', 'robot whiffed');
   setTimeout(() => {
-    robotPaddle.swing(0.8, 1);
+    robotPaddle.swing(0.8, 'FH', 1);
     audio.whoosh(0.6);
     hud.floatText('WHIFF!', { x: ai.x, y: 1.35, z: -1.9 }, 'whiff', 0.8);
   }, 110);
@@ -462,7 +543,7 @@ function robotWhiff() {
 
 function robotServe() {
   const shot = ai.serve(ball);
-  robotPaddle.swing(0.5, 1);
+  robotPaddle.swing(0.5, 'FH', 1);
   ball.launch(shot.vel);
   rules.onHit(-1);
   game.rally = 1;
@@ -493,6 +574,8 @@ function endPoint(result) {
   S.dolly(0.4);
   hud.floatText(w > 0 ? 'POINT!' : 'OUCH', { x: 0, y: 1.35, z: 0.3 }, w > 0 ? 'point' : 'ouch', 1.4);
   hud.reason(REASONS[result.reason]?.(w) || '');
+  termLog('point', `● POINT ${w > 0 ? 'YOU' : 'ROBOT'} (${(REASONS[result.reason]?.(w) || result.reason).toLowerCase()}) · rally ${game.rally} · ${scoreStr()}` +
+    `${game.matchPoint ? ' · MATCH POINT' : ''}`);
   if (w > 0) audio.pointWon(); else audio.pointLost();
   phone.haptic(w > 0 ? [60, 40, 60] : [200]);
   phone.status(w > 0 ? 'POINT!' : 'OUCH', w > 0 ? '#ff2e88' : '#22e5ff');
@@ -553,7 +636,7 @@ const renderPos = { x: 0, y: 1, z: 0 };
 let acc = 0;
 let last = performance.now();
 let elapsed = 0;
-let fpsFrames = 0, fpsT = performance.now(), fps = 60, lastReduce = 0;
+let fpsFrames = 0, fpsT = performance.now(), fps = 60, lastReduce = 0, lastStatsLog = 0;
 let debugT = 0;
 const ctx = { ballX: 0, ballZ: 0, ballVz: 0, halfWidth: TABLE_W / 2, phase: '' };
 
@@ -593,6 +676,7 @@ function frame(now) {
   }
   if (game.phase === PHASE.CALIBRATE && game.inPhase > 7) {
     hud.toast('Calibration skipped — press R any time');
+    termLog('warn', 'calibration timed out (no "calibrated" from the phone) — starting anyway');
     startMatch();
   }
   if (game.phase === PHASE.MATCH_END && now - matchEndConfettiAt > 900 && game.inPhase < 4) {
@@ -612,6 +696,8 @@ function frame(now) {
   const px = game.phase === PHASE.SERVE && game.server > 0 ? 0.2 : paddlePosition.getX(ctx) * (TABLE_W / 2);
   if (game.phase === PHASE.SERVE && game.server > 0 && Math.abs(playerPaddle.x - 0.2) > 0.3) playerPaddle.x = 0.2;
   const py = game.phase === PHASE.SERVE && game.server > 0 ? 0.95 : approaching ? Math.min(1.35, Math.max(0.9, ball.pos.y)) : 1.0;
+  playerPaddle.hand = rightHanded() ? 1 : -1;
+  playerPaddle.setWing(readyWing());
   playerPaddle.tiltPitch = tilt.pitch;
   playerPaddle.tiltRoll = tilt.roll;
   const visDt = Math.max(simDt, realDt * 0.35);
@@ -645,6 +731,12 @@ function frame(now) {
     if (fps < 45 && elapsed > 5 && !document.hidden && now - lastReduce > 4000 && post.reduce()) {
       lastReduce = now;
       console.info(`[motion-pong] FPS ${fps} < 45: bloom resolution → ${post.bloomScale}`);
+      termLog('warn', `laptop FPS ${fps} < 45 → bloom resolution lowered to ×${post.bloomScale}`);
+    }
+    if (started && now - lastStatsLog > 30000) {
+      lastStatsLog = now;
+      termLog('stats', `📊 laptop ${fps} fps${post.enabled ? ` · bloom ×${post.bloomScale}` : ' · lowfx'} · phase ${game.phase} · ` +
+        (phone.connected ? `phone ${phone.hz} Hz, RTT ${Math.round(phone.rtt)} ms` : 'no phone'));
     }
   }
   if (debugOn && now - debugT > 100) {
@@ -668,7 +760,8 @@ function debugString() {
     `w  [rad/s] ${f3(f?.w)}`,
     `g0         ${f3(d.g0)}`,
     `tilt       pitch ${tilt.pitch.toFixed(2)}  roll ${tilt.roll.toFixed(2)}`,
-    `last swing ${s ? `${s.source}  power ${s.power.toFixed(2)}  aim ${s.aim.toFixed(2)}  loft ${s.loft.toFixed(2)}  ${s.grade || ''}` : '—'}`,
+    `face       ${phone.face === null ? '—' : `${phone.face.toFixed(0)}°  (${Math.abs(phone.face) <= CFG.FH_MAX_DEG ? 'forehand' : Math.abs(phone.face) >= CFG.BH_MIN_DEG ? 'backhand' : 'edge-on'} face${CFG.SWAP_STROKES ? ', swapped' : ''})`}  orientation ${phone.orientation || '—'}`,
+    `last swing ${s ? `${s.source}  ${s.stroke}(${s.strokeBy})  power ${s.power.toFixed(2)}  aim ${s.aim.toFixed(2)}  loft ${s.loft.toFixed(2)}  ${s.grade || ''}${s.note ? `  ${s.note}` : ''}` : '—'}`,
     `ball       ${ball.pos.x.toFixed(2)} ${ball.pos.y.toFixed(2)} ${ball.pos.z.toFixed(2)}  v ${ball.speed().toFixed(1)} m/s`,
     `difficulty ${CFG.DIFFICULTY}   room ${room}`,
   ].join('\n');
@@ -682,4 +775,4 @@ hud.setServer(1);
 requestAnimationFrame(frame);
 
 // Expose a tiny handle for automated testing / console tinkering.
-window.__motionPong = { game, ball, rules, ai, phone, CFG, PHASE, startMatch, handleSwing, begin, scene: S.scene, camera: S.camera, renderer: S.renderer };
+window.__motionPong = { game, ball, rules, ai, phone, CFG, PHASE, startMatch, handleSwing, begin, playerPaddle, scene: S.scene, camera: S.camera, renderer: S.renderer };

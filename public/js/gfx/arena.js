@@ -51,9 +51,9 @@ export function createArena(scene) {
         vec2 p = vUv*2.0-1.0;
         float r = length(p);
         if (r > 1.0) discard;
-        vec3 top = vec3(1.0, 0.92, 0.35);
+        vec3 top = vec3(1.0, 0.7, 0.3);
         vec3 bot = mix(vec3(1.0, 0.18, 0.55), vec3(1.0, 0.25, 0.1), uFire);
-        vec3 c = mix(bot, top, smoothstep(-0.9, 0.8, p.y)) * 1.25;
+        vec3 c = mix(bot, top, smoothstep(-0.9, 0.8, p.y)) * 0.6; // kept under the bloom threshold so it doesn't glare behind the ball
         // horizontal cut stripes in the lower half, scrolling down
         float y = p.y;
         if (y < 0.15) {
@@ -69,7 +69,7 @@ export function createArena(scene) {
   sun.position.set(0, 9, -120);
   group.add(sun);
   // halo glow behind the sun
-  const haloTex = radialTexture('rgba(255,90,170,0.3)', 'rgba(255,60,140,0)');
+  const haloTex = radialTexture('rgba(255,90,170,0.12)', 'rgba(255,60,140,0)');
   const sunHalo = new THREE.Mesh(new THREE.PlaneGeometry(90, 90),
     new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
   sunHalo.position.set(0, 9, -121);
